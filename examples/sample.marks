@@ -1,0 +1,3 @@
+# x0 y0 x1 y1  label   (GDS db units)
+120 0 200 80   space < min
+40 200 360 240 width < min
