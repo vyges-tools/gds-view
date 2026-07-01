@@ -15,10 +15,11 @@ use vyges_gds_view::svg::{self, Mark};
 use vyges_gds_view::{flatten, VERSION};
 
 const USAGE: &str = "\
-vyges-gds-view — headless GDS layout viewer (GDS in, layered SVG out)
+vyges-gds-view — headless layout viewer (GDS or OASIS in, layered SVG out)
 
 usage:
-  vyges-gds-view render LAYOUT.gds [--top CELL] [--layers L1,L2] [--marks FILE] [-o OUT.svg]
+  vyges-gds-view render LAYOUT [--top CELL] [--layers L1,L2] [--marks FILE] [-o OUT.svg]
+  # LAYOUT is GDSII (.gds) or OASIS (.oas/.oasis) — picked by extension
   vyges-gds-view demo [-o OUT.svg]
 
 flags:
@@ -110,7 +111,7 @@ fn main() {
                 eprintln!("error: `render` needs a LAYOUT.gds path\n{USAGE}");
                 exit(2);
             };
-            let lib = Library::load(path).unwrap_or_else(|e| die(&format!("{path}: {e}")));
+            let lib = Library::load_any(path).unwrap_or_else(|e| die(&format!("{path}: {e}")));
             let top = opt(&args, "--top").or_else(|| lib.cells.last().map(|c| c.name.clone()));
             let Some(top) = top else { die("the GDS has no cells") };
             let cell = flatten::flatten(&lib, &top).unwrap_or_else(|e| die(&e));
