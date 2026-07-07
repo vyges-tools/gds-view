@@ -90,6 +90,38 @@ fn layer_filter(args: &[String]) -> Option<Vec<i16>> {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--describe") {
+        // Machine-readable description of `render` for tooling that drives it.
+        const DESCRIBE: &str = r#"{
+  "name": "gds-view",
+  "summary": "headless layout viewer — GDS/OASIS → layered SVG",
+  "invocation": {
+    "args_template": ["render", "{gds}"],
+    "optional": [
+      { "arg": "top",    "flag": "--top" },
+      { "arg": "layers", "flag": "--layers" },
+      { "arg": "marks",  "flag": "--marks" },
+      { "arg": "out",    "flag": "-o" }
+    ],
+    "emits_json": false
+  },
+  "inputs": {
+    "type": "object",
+    "required": ["gds"],
+    "properties": {
+      "gds":    { "type": "string", "description": "layout file (.gds or .oas)" },
+      "top":    { "type": "string", "description": "top cell (default: the sole cell)" },
+      "layers": { "type": "string", "description": "comma-separated layers to draw, e.g. 66,68" },
+      "marks":  { "type": "string", "description": "a marks file to overlay" },
+      "out":    { "type": "string", "description": "write the SVG to this path (default: stdout)" }
+    }
+  },
+  "artifacts": [ { "role": "svg", "from_arg": "out" } ]
+}
+"#;
+        print!("{DESCRIBE}");
+        return;
+    }
     if args.iter().any(|a| a == "-h" || a == "--help") || args.is_empty() {
         print!("{USAGE}");
         return;
