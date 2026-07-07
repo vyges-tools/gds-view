@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "vyges-gds-view"
-version = "0.1.8"
+version = "0.1.10"
 dependencies = [
  "vyges-layout",
 ]
