@@ -27,6 +27,7 @@ flags:
   --layers LIST  comma-separated GDS layer numbers to show (default: all)
   --marks FILE   overlay violation boxes; each line: `x0 y0 x1 y1 [label...]`
   -o FILE        write SVG to FILE (default: stdout)
+  --describe            print a machine-readable JSON description of the command
   -h, --help · -V, --version
 ";
 
