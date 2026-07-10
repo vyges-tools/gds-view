@@ -1,6 +1,6 @@
 [package]
 name = "vyges-gds-view"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2021"
 description = "Headless GDS layout viewer: a GDS in, a layered SVG out — with optional violation overlay."
 license = "Apache-2.0"
