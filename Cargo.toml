@@ -12,6 +12,7 @@ repository = "https://github.com/vyges-tools/gds-view"
 # the vyges-layout foundation — the same kernel vyges-lvs and vyges-drc ride on.
 [dependencies]
 vyges-layout = { git = "https://github.com/vyges-tools/layout", branch = "main" }
+vyges-events = { git = "https://github.com/vyges-tools/events", branch = "main", default-features = false }
 
 [[bin]]
 name = "vyges-gds-view"

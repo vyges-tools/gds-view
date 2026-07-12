@@ -14,6 +14,8 @@ use vyges_gds_view::geom::Rect;
 use vyges_gds_view::svg::{self, Mark};
 use vyges_gds_view::{flatten, VERSION};
 
+use std::collections::BTreeSet;
+
 const USAGE: &str = "\
 vyges-gds-view — headless layout viewer (GDS or OASIS in, layered SVG out)
 
@@ -89,6 +91,39 @@ fn layer_filter(args: &[String]) -> Option<Vec<i16>> {
     })
 }
 
+/// Emit the vyges-events completion summary for a render — to stderr only (the SVG
+/// goes to stdout / -o and is never touched). This tool has no findings, so the trail
+/// is a single INFO summary keyed by code=GDSVIEW-DONE, co-referencing the top cell.
+fn emit_gds_view_events(top: &str, cell: &Cell, layers: Option<&[i16]>, out: Option<&str>) {
+    use vyges_events::{Event, Severity};
+    let keep = |layer: i16| layers.map(|ls| ls.contains(&layer)).unwrap_or(true);
+    let mut shapes = 0usize;
+    let mut seen: BTreeSet<i16> = BTreeSet::new();
+    for e in &cell.elements {
+        match e {
+            Element::Boundary { layer, .. }
+            | Element::Box { layer, .. }
+            | Element::Path { layer, .. }
+                if keep(*layer) =>
+            {
+                shapes += 1;
+                seen.insert(*layer);
+            }
+            _ => {}
+        }
+    }
+    let dest = out.unwrap_or("stdout");
+    let msg = format!(
+        "rendered top '{top}': {shapes} shape(s) across {} layer(s) -> SVG ({dest})",
+        seen.len()
+    );
+    vyges_events::emit(
+        &Event::new("vyges-gds-view", Severity::Info, msg)
+            .with_code("GDSVIEW-DONE")
+            .with_objects(vec![format!("cell:{top}")]),
+    );
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--describe") {
@@ -136,7 +171,9 @@ fn main() {
         "demo" => {
             let lib = demo_lib();
             let cell = flatten::flatten(&lib, "demo").unwrap_or_else(|e| die(&e));
-            let svg = svg::render(&cell, layer_filter(&args).as_deref(), &[]);
+            let layers = layer_filter(&args);
+            let svg = svg::render(&cell, layers.as_deref(), &[]);
+            emit_gds_view_events("demo", &cell, layers.as_deref(), opt(&args, "-o").as_deref());
             write_out(&args, &svg);
         }
         "render" => {
@@ -156,7 +193,9 @@ fn main() {
                 }
                 None => Vec::new(),
             };
-            let svg = svg::render(&cell, layer_filter(&args).as_deref(), &marks);
+            let layers = layer_filter(&args);
+            let svg = svg::render(&cell, layers.as_deref(), &marks);
+            emit_gds_view_events(&top, &cell, layers.as_deref(), opt(&args, "-o").as_deref());
             write_out(&args, &svg);
         }
         other => {
