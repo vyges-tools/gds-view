@@ -12,7 +12,7 @@ use std::process::exit;
 use vyges_gds_view::gds::{Cell, Element, Library};
 use vyges_gds_view::geom::Rect;
 use vyges_gds_view::svg::{self, Mark};
-use vyges_gds_view::{flatten, VERSION};
+use vyges_gds_view::{flatten, png, VERSION};
 
 use std::collections::BTreeSet;
 
@@ -28,7 +28,9 @@ flags:
   --top CELL     top cell to flatten + render (default: last cell in the GDS)
   --layers LIST  comma-separated GDS layer numbers to show (default: all)
   --marks FILE   overlay violation boxes; each line: `x0 y0 x1 y1 [label...]`
-  -o FILE        write SVG to FILE (default: stdout)
+  -o FILE        write to FILE (default: stdout). SVG, or a PNG if FILE ends in .png
+  --png          force PNG (bounded raster thumbnail — for dense real blocks)
+  --width N      PNG fit size in pixels (default: 700)
   --describe            print a machine-readable JSON description of the command
   -h, --help · -V, --version
 ";
@@ -82,6 +84,26 @@ fn write_out(args: &[String], svg: &str) {
             }
         }
         None => print!("{svg}"),
+    }
+}
+
+/// PNG output when `--png` is passed or the `-o` path ends in `.png`.
+fn wants_png(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--png")
+        || opt(args, "-o").map(|p| p.to_ascii_lowercase().ends_with(".png")).unwrap_or(false)
+}
+
+fn write_bytes(args: &[String], bytes: &[u8]) {
+    match opt(args, "-o") {
+        Some(p) => {
+            if let Err(e) = std::fs::write(&p, bytes) {
+                die(&format!("{p}: {e}"));
+            }
+        }
+        None => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(bytes);
+        }
     }
 }
 
@@ -194,9 +216,14 @@ fn main() {
                 None => Vec::new(),
             };
             let layers = layer_filter(&args);
-            let svg = svg::render(&cell, layers.as_deref(), &marks);
             emit_gds_view_events(&top, &cell, layers.as_deref(), opt(&args, "-o").as_deref());
-            write_out(&args, &svg);
+            if wants_png(&args) {
+                // Raster output: bounded PNG thumbnail (real blocks are too dense for SVG).
+                let dim = opt(&args, "--width").and_then(|s| s.parse().ok()).unwrap_or(700);
+                write_bytes(&args, &png::render_png(&cell, layers.as_deref(), dim));
+            } else {
+                write_out(&args, &svg::render(&cell, layers.as_deref(), &marks));
+            }
         }
         other => {
             eprintln!("error: unknown command {other:?}\n{USAGE}");

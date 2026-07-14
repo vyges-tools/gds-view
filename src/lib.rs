@@ -17,6 +17,7 @@
 
 pub use vyges_layout::{flatten, gds, geom};
 
+pub mod png;
 pub mod svg;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
