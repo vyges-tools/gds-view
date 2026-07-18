@@ -25,8 +25,8 @@ const MARGIN: f64 = 16.0;
 
 /// A fixed, high-contrast palette; layer number indexes into it.
 const PALETTE: &[&str] = &[
-    "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1", "#76b7b2", "#edc948",
-    "#ff9da7", "#9c755f", "#bab0ac", "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
+    "#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#b07aa1", "#76b7b2", "#edc948", "#ff9da7",
+    "#9c755f", "#bab0ac", "#1b9e77", "#d95f02", "#7570b3", "#e7298a",
 ];
 
 fn color(layer: i16) -> &'static str {
@@ -99,7 +99,9 @@ pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
                     "<polygon points=\"{poly}\" fill=\"{c}\" fill-opacity=\"0.35\" stroke=\"{c}\" stroke-width=\"{sw:.2}\"/>",
                 );
             }
-            Element::Path { layer, pts, width, .. } if keep(*layer, layers) => {
+            Element::Path {
+                layer, pts, width, ..
+            } if keep(*layer, layers) => {
                 seen.insert(*layer);
                 let pl = poly(pts, &map);
                 let c = color(*layer);
@@ -126,13 +128,21 @@ pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
             lw = sw * 2.0,
         );
         if !m.label.is_empty() {
-            let _ = writeln!(o, "<text x=\"{rx:.1}\" y=\"{ty:.1}\" fill=\"#d00\">{}</text>", esc(&m.label), ty = ry - 2.0);
+            let _ = writeln!(
+                o,
+                "<text x=\"{rx:.1}\" y=\"{ty:.1}\" fill=\"#d00\">{}</text>",
+                esc(&m.label),
+                ty = ry - 2.0
+            );
         }
     }
 
     // legend.
     let lx = DRAW_W + MARGIN * 2.0;
-    let _ = writeln!(o, "<text x=\"{lx:.1}\" y=\"{MARGIN}\" font-weight=\"bold\">layers</text>");
+    let _ = writeln!(
+        o,
+        "<text x=\"{lx:.1}\" y=\"{MARGIN}\" font-weight=\"bold\">layers</text>"
+    );
     for (i, layer) in seen.iter().enumerate() {
         let y = MARGIN + 14.0 + i as f64 * 18.0;
         let c = color(*layer);
@@ -167,7 +177,9 @@ fn legend_height(cell: &Cell, layers: Option<&[i16]>) -> f64 {
         .elements
         .iter()
         .filter_map(|e| match e {
-            Element::Boundary { layer, .. } | Element::Box { layer, .. } | Element::Path { layer, .. }
+            Element::Boundary { layer, .. }
+            | Element::Box { layer, .. }
+            | Element::Path { layer, .. }
                 if keep(*layer, layers) =>
             {
                 Some(*layer)
@@ -189,7 +201,9 @@ fn poly(pts: &[(i32, i32)], map: &dyn Fn(f64, f64) -> (f64, f64)) -> String {
 }
 
 fn esc(t: &str) -> String {
-    t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    t.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[cfg(test)]
@@ -201,8 +215,16 @@ mod tests {
         Cell {
             name: "top".into(),
             elements: vec![
-                Element::Boundary { layer: 66, datatype: 0, pts: Rect::new(0, 0, 100, 50).as_boundary() },
-                Element::Boundary { layer: 68, datatype: 0, pts: Rect::new(20, 60, 80, 90).as_boundary() },
+                Element::Boundary {
+                    layer: 66,
+                    datatype: 0,
+                    pts: Rect::new(0, 0, 100, 50).as_boundary(),
+                },
+                Element::Boundary {
+                    layer: 68,
+                    datatype: 0,
+                    pts: Rect::new(20, 60, 80, 90).as_boundary(),
+                },
             ],
         }
     }
@@ -212,8 +234,15 @@ mod tests {
         let svg = render(&cell(), None, &[]);
         assert!(svg.starts_with("<svg"));
         assert!(svg.trim_end().ends_with("</svg>"));
-        assert_eq!(svg.matches("<polygon").count(), 2, "one polygon per boundary");
-        assert!(svg.contains("layer 66") && svg.contains("layer 68"), "both layers in legend");
+        assert_eq!(
+            svg.matches("<polygon").count(),
+            2,
+            "one polygon per boundary"
+        );
+        assert!(
+            svg.contains("layer 66") && svg.contains("layer 68"),
+            "both layers in legend"
+        );
         // layer 66 and 68 get distinct palette colours
         assert_ne!(color(66), color(68));
     }
@@ -227,7 +256,10 @@ mod tests {
 
     #[test]
     fn marks_draw_a_red_box_on_top() {
-        let m = Mark { r: Rect::new(10, 10, 30, 30), label: "space < 100".into() };
+        let m = Mark {
+            r: Rect::new(10, 10, 30, 30),
+            label: "space < 100".into(),
+        };
         let svg = render(&cell(), None, std::slice::from_ref(&m));
         assert!(svg.contains("stroke=\"#d00\""), "violation box is red");
         assert!(svg.contains("space &lt; 100"), "label is escaped + shown");
@@ -236,7 +268,14 @@ mod tests {
 
     #[test]
     fn empty_cell_still_emits_valid_svg() {
-        let svg = render(&Cell { name: "e".into(), elements: vec![] }, None, &[]);
+        let svg = render(
+            &Cell {
+                name: "e".into(),
+                elements: vec![],
+            },
+            None,
+            &[],
+        );
         assert!(svg.starts_with("<svg") && svg.trim_end().ends_with("</svg>"));
     }
 }

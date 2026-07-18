@@ -36,7 +36,9 @@ flags:
 ";
 
 fn opt(args: &[String], name: &str) -> Option<String> {
-    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned())
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1).cloned())
 }
 
 /// Parse a marks file: one violation per line, `x0 y0 x1 y1 [label...]`, `#` comments.
@@ -56,7 +58,10 @@ fn parse_marks(text: &str) -> Result<Vec<Mark>, String> {
         };
         let (x0, y0, x1, y1) = (num()?, num()?, num()?, num()?);
         let label = it.collect::<Vec<_>>().join(" ");
-        out.push(Mark { r: Rect::new(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)), label });
+        out.push(Mark {
+            r: Rect::new(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)),
+            label,
+        });
     }
     Ok(out)
 }
@@ -67,10 +72,27 @@ fn demo_lib() -> Library {
     lib.cells.push(Cell {
         name: "demo".into(),
         elements: vec![
-            Element::Boundary { layer: 66, datatype: 0, pts: Rect::new(0, 0, 400, 80).as_boundary() },
-            Element::Boundary { layer: 66, datatype: 0, pts: Rect::new(0, 160, 400, 240).as_boundary() },
-            Element::Boundary { layer: 68, datatype: 0, pts: Rect::new(120, 0, 200, 240).as_boundary() },
-            Element::Path { layer: 70, datatype: 0, width: 20, pts: vec![(40, 40), (360, 40), (360, 200)] },
+            Element::Boundary {
+                layer: 66,
+                datatype: 0,
+                pts: Rect::new(0, 0, 400, 80).as_boundary(),
+            },
+            Element::Boundary {
+                layer: 66,
+                datatype: 0,
+                pts: Rect::new(0, 160, 400, 240).as_boundary(),
+            },
+            Element::Boundary {
+                layer: 68,
+                datatype: 0,
+                pts: Rect::new(120, 0, 200, 240).as_boundary(),
+            },
+            Element::Path {
+                layer: 70,
+                datatype: 0,
+                width: 20,
+                pts: vec![(40, 40), (360, 40), (360, 200)],
+            },
         ],
     });
     lib
@@ -90,7 +112,9 @@ fn write_out(args: &[String], svg: &str) {
 /// PNG output when `--png` is passed or the `-o` path ends in `.png`.
 fn wants_png(args: &[String]) -> bool {
     args.iter().any(|a| a == "--png")
-        || opt(args, "-o").map(|p| p.to_ascii_lowercase().ends_with(".png")).unwrap_or(false)
+        || opt(args, "-o")
+            .map(|p| p.to_ascii_lowercase().ends_with(".png"))
+            .unwrap_or(false)
 }
 
 fn write_bytes(args: &[String], bytes: &[u8]) {
@@ -109,7 +133,9 @@ fn write_bytes(args: &[String], bytes: &[u8]) {
 
 fn layer_filter(args: &[String]) -> Option<Vec<i16>> {
     opt(args, "--layers").map(|s| {
-        s.split(',').filter_map(|t| t.trim().parse::<i16>().ok()).collect()
+        s.split(',')
+            .filter_map(|t| t.trim().parse::<i16>().ok())
+            .collect()
     })
 }
 
@@ -174,7 +200,11 @@ fn main() {
       "out":    { "type": "string", "description": "write the SVG to this path (default: stdout)" }
     }
   },
-  "artifacts": [ { "role": "svg", "from_arg": "out" } ]
+  "artifacts": [ { "role": "svg", "from_arg": "out" } ],
+  "assertion": {
+    "id": "layout-render",
+    "not_applicable": true
+  }
 }
 "#;
         print!("{DESCRIBE}");
@@ -195,7 +225,12 @@ fn main() {
             let cell = flatten::flatten(&lib, "demo").unwrap_or_else(|e| die(&e));
             let layers = layer_filter(&args);
             let svg = svg::render(&cell, layers.as_deref(), &[]);
-            emit_gds_view_events("demo", &cell, layers.as_deref(), opt(&args, "-o").as_deref());
+            emit_gds_view_events(
+                "demo",
+                &cell,
+                layers.as_deref(),
+                opt(&args, "-o").as_deref(),
+            );
             write_out(&args, &svg);
         }
         "render" => {
@@ -205,12 +240,15 @@ fn main() {
             };
             let lib = Library::load_any(path).unwrap_or_else(|e| die(&format!("{path}: {e}")));
             let top = opt(&args, "--top").or_else(|| lib.cells.last().map(|c| c.name.clone()));
-            let Some(top) = top else { die("the GDS has no cells") };
+            let Some(top) = top else {
+                die("the GDS has no cells")
+            };
             let cell = flatten::flatten(&lib, &top).unwrap_or_else(|e| die(&e));
 
             let marks = match opt(&args, "--marks") {
                 Some(mp) => {
-                    let t = std::fs::read_to_string(&mp).unwrap_or_else(|e| die(&format!("{mp}: {e}")));
+                    let t =
+                        std::fs::read_to_string(&mp).unwrap_or_else(|e| die(&format!("{mp}: {e}")));
                     parse_marks(&t).unwrap_or_else(|e| die(&e))
                 }
                 None => Vec::new(),
@@ -219,7 +257,9 @@ fn main() {
             emit_gds_view_events(&top, &cell, layers.as_deref(), opt(&args, "-o").as_deref());
             if wants_png(&args) {
                 // Raster output: bounded PNG thumbnail (real blocks are too dense for SVG).
-                let dim = opt(&args, "--width").and_then(|s| s.parse().ok()).unwrap_or(700);
+                let dim = opt(&args, "--width")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(700);
                 write_bytes(&args, &png::render_png(&cell, layers.as_deref(), dim));
             } else {
                 write_out(&args, &svg::render(&cell, layers.as_deref(), &marks));
@@ -253,7 +293,10 @@ mod tests {
     #[test]
     fn marks_normalize_reversed_corners() {
         let m = parse_marks("30 30 10 10\n").unwrap();
-        assert_eq!((m[0].r.x0, m[0].r.y0, m[0].r.x1, m[0].r.y1), (10, 10, 30, 30));
+        assert_eq!(
+            (m[0].r.x0, m[0].r.y0, m[0].r.x1, m[0].r.y1),
+            (10, 10, 30, 30)
+        );
     }
 
     #[test]

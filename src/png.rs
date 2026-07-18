@@ -9,9 +9,20 @@ use crate::gds::{Cell, Element};
 
 /// Same 14-colour palette as the SVG renderer, as RGB.
 const PALETTE: &[(u8, u8, u8)] = &[
-    (78, 121, 167), (242, 142, 43), (89, 161, 79), (225, 87, 89), (176, 122, 161),
-    (118, 183, 178), (237, 201, 72), (255, 157, 167), (156, 117, 95), (186, 176, 172),
-    (27, 158, 119), (217, 95, 2), (117, 112, 179), (231, 41, 138),
+    (78, 121, 167),
+    (242, 142, 43),
+    (89, 161, 79),
+    (225, 87, 89),
+    (176, 122, 161),
+    (118, 183, 178),
+    (237, 201, 72),
+    (255, 157, 167),
+    (156, 117, 95),
+    (186, 176, 172),
+    (27, 158, 119),
+    (217, 95, 2),
+    (117, 112, 179),
+    (231, 41, 138),
 ];
 
 fn color(layer: i16) -> (u8, u8, u8) {
@@ -56,10 +67,16 @@ pub fn render_png(cell: &Cell, layers: Option<&[i16]>, max_dim: u32) -> Vec<u8> 
             Element::Boundary { layer, pts: p, .. } | Element::Box { layer, pts: p, .. }
                 if keep(*layer, layers) =>
             {
-                let poly: Vec<(f64, f64)> = p.iter().map(|&(x, y)| map(x as f64, y as f64)).collect();
+                let poly: Vec<(f64, f64)> =
+                    p.iter().map(|&(x, y)| map(x as f64, y as f64)).collect();
                 fill(&mut buf, w, h, &poly, color(*layer), 0.45);
             }
-            Element::Path { layer, pts: p, width, .. } if keep(*layer, layers) => {
+            Element::Path {
+                layer,
+                pts: p,
+                width,
+                ..
+            } if keep(*layer, layers) => {
                 let hw = ((*width as f64 * s) / 2.0).max(0.5);
                 let px: Vec<(f64, f64)> = p.iter().map(|&(x, y)| map(x as f64, y as f64)).collect();
                 for seg in px.windows(2) {
@@ -68,7 +85,12 @@ pub fn render_png(cell: &Cell, layers: Option<&[i16]>, max_dim: u32) -> Vec<u8> 
                     let (dx, dy) = (bx - ax, by - ay);
                     let len = (dx * dx + dy * dy).sqrt().max(1e-6);
                     let (nx, ny) = (-dy / len * hw, dx / len * hw);
-                    let quad = [(ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny)];
+                    let quad = [
+                        (ax + nx, ay + ny),
+                        (bx + nx, by + ny),
+                        (bx - nx, by - ny),
+                        (ax - nx, ay - ny),
+                    ];
                     fill(&mut buf, w, h, &quad, color(*layer), 0.55);
                 }
             }
@@ -118,7 +140,9 @@ fn fill(buf: &mut [u8], w: u32, h: u32, poly: &[(f64, f64)], col: (u8, u8, u8), 
 }
 
 fn blend(dst: u8, src: u8, a: f64) -> u8 {
-    (dst as f64 * (1.0 - a) + src as f64 * a).round().clamp(0.0, 255.0) as u8
+    (dst as f64 * (1.0 - a) + src as f64 * a)
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 // --- minimal PNG encoder (8-bit RGB, stored DEFLATE) ----------------------- //
@@ -150,7 +174,11 @@ fn chunk(out: &mut Vec<u8>, typ: &[u8; 4], data: &[u8]) {
     for &b in typ.iter().chain(data.iter()) {
         c ^= b as u32;
         for _ in 0..8 {
-            c = if c & 1 == 1 { (c >> 1) ^ 0xEDB8_8320 } else { c >> 1 };
+            c = if c & 1 == 1 {
+                (c >> 1) ^ 0xEDB8_8320
+            } else {
+                c >> 1
+            };
         }
     }
     out.extend_from_slice(&(c ^ 0xffff_ffff).to_be_bytes());
@@ -190,7 +218,11 @@ mod tests {
     #[test]
     fn emits_a_valid_png_signature_and_iend() {
         let cell = Cell {
-            elements: vec![Element::Boundary { layer: 66, datatype: 0, pts: Rect::new(0, 0, 100, 80).as_boundary() }],
+            elements: vec![Element::Boundary {
+                layer: 66,
+                datatype: 0,
+                pts: Rect::new(0, 0, 100, 80).as_boundary(),
+            }],
             ..Default::default()
         };
         let png = render_png(&cell, None, 64);
