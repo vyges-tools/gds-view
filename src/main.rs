@@ -179,6 +179,10 @@ fn main() {
         const DESCRIBE: &str = r#"{
   "name": "gds-view",
   "summary": "headless layout viewer — GDS/OASIS → layered SVG",
+  "maturity": "structured",
+  "provenance_limitations": [
+      "input_hash covers the argument vector, not the content of the layout or layer map it names."
+  ],
   "invocation": {
     "args_template": ["render", "{gds}"],
     "optional": [
