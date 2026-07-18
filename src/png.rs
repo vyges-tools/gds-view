@@ -33,9 +33,10 @@ fn keep(layer: i16, layers: Option<&[i16]>) -> bool {
     layers.map(|ls| ls.contains(&layer)).unwrap_or(true)
 }
 
-/// Render `cell` to a PNG byte stream, fitted into a `max_dim`-pixel square
-/// (aspect preserved, Y flipped so up is up), translucent so overlaps show.
-pub fn render_png(cell: &Cell, layers: Option<&[i16]>, max_dim: u32) -> Vec<u8> {
+/// The db-unit extent of everything `render_png` would draw, or `None` if it would draw
+/// nothing. Exposed because a caller framing its own window usually wants to know the whole
+/// cell's extent first — to clamp a window to it, or to pair a zoomed view with a full one.
+pub fn drawn_bbox(cell: &Cell, layers: Option<&[i16]>) -> Option<crate::geom::Rect> {
     let mut pts: Vec<(i32, i32)> = Vec::new();
     for e in &cell.elements {
         match e {
@@ -49,10 +50,45 @@ pub fn render_png(cell: &Cell, layers: Option<&[i16]>, max_dim: u32) -> Vec<u8> 
             _ => {}
         }
     }
-    let (x0, y0, x1, y1) = match crate::geom::bbox(&pts) {
-        Some(b) => (b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64),
-        None => (0.0, 0.0, 1.0, 1.0),
-    };
+    crate::geom::bbox(&pts)
+}
+
+/// Render `cell` to a PNG byte stream, fitted into a `max_dim`-pixel square
+/// (aspect preserved, Y flipped so up is up), translucent so overlaps show.
+///
+/// Frames the whole cell. To frame a chosen region — one DRC violation, say — use
+/// [`render_png_window`].
+pub fn render_png(cell: &Cell, layers: Option<&[i16]>, max_dim: u32) -> Vec<u8> {
+    let w = drawn_bbox(cell, layers).unwrap_or(crate::geom::Rect {
+        x0: 0,
+        y0: 0,
+        x1: 1,
+        y1: 1,
+    });
+    render_png_window(cell, layers, max_dim, w)
+}
+
+/// Render only the region `window` (in db units) of `cell`, at the same fidelity.
+///
+/// This is the occurrence-level view: a DRC violation's bounding box, usually padded by the
+/// caller so the geometry has context around it, rather than a thumbnail of the whole block
+/// in which a 40 nm spacing error is invisible.
+///
+/// Geometry outside the window is clipped, not omitted — a shape crossing the edge is drawn
+/// up to it, so a violation on the boundary still shows what it touches.
+///
+/// The window is honoured exactly: the aspect ratio of the *output* follows the window's, so
+/// a wide thin window yields a wide thin image rather than being letterboxed into a square.
+/// A degenerate window (zero or negative extent, which a zero-area violation marker can
+/// produce) is widened to one db unit rather than dividing by zero.
+pub fn render_png_window(
+    cell: &Cell,
+    layers: Option<&[i16]>,
+    max_dim: u32,
+    window: crate::geom::Rect,
+) -> Vec<u8> {
+    let (x0, y0) = (window.x0 as f64, window.y0 as f64);
+    let (x1, y1) = (window.x1 as f64, window.y1 as f64);
     let (dw, dh) = ((x1 - x0).max(1.0), (y1 - y0).max(1.0));
     let s = (max_dim as f64) / dw.max(dh);
     let w = ((dw * s).ceil() as u32).max(1);
@@ -230,5 +266,175 @@ mod tests {
         assert!(png.windows(4).any(|w| w == b"IHDR"));
         assert!(png.windows(4).any(|w| w == b"IDAT"));
         assert_eq!(&png[png.len() - 8..png.len() - 4], b"IEND");
+    }
+
+    // ---- windowed rendering ----
+    //
+    // The occurrence-level view: frame a chosen region rather than the whole cell, so a
+    // small violation is visible instead of being one pixel of a block thumbnail.
+
+    /// Two separated squares, so a window can contain one and exclude the other.
+    fn two_squares() -> Cell {
+        Cell {
+            elements: vec![
+                Element::Boundary {
+                    layer: 66,
+                    datatype: 0,
+                    pts: Rect::new(0, 0, 100, 100).as_boundary(),
+                },
+                Element::Boundary {
+                    layer: 68,
+                    datatype: 0,
+                    pts: Rect::new(900, 900, 1000, 1000).as_boundary(),
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    /// PNG dimensions straight out of the IHDR chunk (bytes 16..24, big-endian).
+    fn dims(png: &[u8]) -> (u32, u32) {
+        let g = |o: usize| u32::from_be_bytes([png[o], png[o + 1], png[o + 2], png[o + 3]]);
+        (g(16), g(20))
+    }
+
+    #[test]
+    fn drawn_bbox_reports_the_extent_of_what_would_be_drawn() {
+        let b = drawn_bbox(&two_squares(), None).expect("two squares have an extent");
+        assert_eq!((b.x0, b.y0, b.x1, b.y1), (0, 0, 1000, 1000));
+        // filtering to one layer narrows it to that layer's geometry
+        let b1 = drawn_bbox(&two_squares(), Some(&[66])).expect("layer 66 is present");
+        assert_eq!((b1.x0, b1.y0, b1.x1, b1.y1), (0, 0, 100, 100));
+    }
+
+    #[test]
+    fn drawn_bbox_is_none_when_nothing_would_be_drawn() {
+        assert!(drawn_bbox(&Cell::default(), None).is_none());
+        // a layer filter that matches nothing draws nothing
+        assert!(drawn_bbox(&two_squares(), Some(&[12345])).is_none());
+    }
+
+    /// The refactor must be exact: framing the full extent is what `render_png` already did,
+    /// so the two must agree byte for byte. This is what makes the new entry point a
+    /// generalisation rather than a second, subtly different renderer.
+    #[test]
+    fn a_window_of_the_full_extent_matches_the_unwindowed_render() {
+        let cell = two_squares();
+        let full = drawn_bbox(&cell, None).unwrap();
+        assert_eq!(
+            render_png(&cell, None, 64),
+            render_png_window(&cell, None, 64, full)
+        );
+    }
+
+    /// The point of the feature: a window actually changes what is drawn.
+    #[test]
+    fn a_window_frames_its_region_and_excludes_the_rest() {
+        let cell = two_squares();
+        let whole = render_png(&cell, None, 64);
+        let zoom = render_png_window(&cell, None, 64, Rect::new(0, 0, 100, 100));
+        assert_ne!(
+            whole, zoom,
+            "a zoomed window must not render as the whole cell"
+        );
+        // Framing only the first square must match rendering a cell that contains only it:
+        // the second square is outside the window and must contribute nothing.
+        let only_first = Cell {
+            elements: vec![Element::Boundary {
+                layer: 66,
+                datatype: 0,
+                pts: Rect::new(0, 0, 100, 100).as_boundary(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            zoom,
+            render_png_window(&only_first, None, 64, Rect::new(0, 0, 100, 100)),
+            "geometry outside the window must not affect the image"
+        );
+    }
+
+    /// Output aspect follows the window, so a wide thin violation renders wide and thin
+    /// rather than being letterboxed into a square that wastes most of the pixels.
+    #[test]
+    fn output_aspect_follows_the_window() {
+        let cell = two_squares();
+        let (w, h) = dims(&render_png_window(
+            &cell,
+            None,
+            64,
+            Rect::new(0, 0, 1000, 100),
+        ));
+        assert!(
+            w > h,
+            "a 10:1 window should render wider than tall, got {w}x{h}"
+        );
+        let (w2, h2) = dims(&render_png_window(
+            &cell,
+            None,
+            64,
+            Rect::new(0, 0, 100, 1000),
+        ));
+        assert!(
+            h2 > w2,
+            "a 1:10 window should render taller than wide, got {w2}x{h2}"
+        );
+        // the long side is the one bounded by max_dim
+        assert_eq!(w.max(h), 64);
+        assert_eq!(w2.max(h2), 64);
+    }
+
+    /// A zero-area marker is a real thing to be handed (a point violation), and dividing by
+    /// its extent would be a panic or a zero-pixel image.
+    #[test]
+    fn a_degenerate_window_still_produces_a_valid_image() {
+        let cell = two_squares();
+        for w in [
+            Rect::new(50, 50, 50, 50), // zero area
+            Rect::new(50, 50, 51, 50), // zero height
+            Rect::new(50, 50, 50, 51), // zero width
+        ] {
+            let png = render_png_window(&cell, None, 64, w);
+            assert_eq!(
+                &png[..8],
+                &[137, 80, 78, 71, 13, 10, 26, 10],
+                "{w:?} broke the PNG"
+            );
+            let (pw, ph) = dims(&png);
+            assert!(pw >= 1 && ph >= 1, "{w:?} produced a {pw}x{ph} image");
+        }
+    }
+
+    /// A window over empty space is a legitimate request (an endpoint that turned out to be
+    /// in a gap); it should come back blank rather than panic or clamp to the geometry.
+    #[test]
+    fn a_window_containing_no_geometry_renders_blank() {
+        let cell = two_squares();
+        let empty = render_png_window(&cell, None, 64, Rect::new(400, 400, 500, 500));
+        let blank = render_png_window(&Cell::default(), None, 64, Rect::new(400, 400, 500, 500));
+        assert_eq!(
+            empty, blank,
+            "a window in a gap must render as background only"
+        );
+    }
+
+    /// A shape crossing the window edge must be drawn up to that edge, not dropped, or a
+    /// violation on the boundary would show nothing of what it touches.
+    #[test]
+    fn geometry_crossing_the_window_edge_is_clipped_not_dropped() {
+        let cell = two_squares();
+        // a window covering only the right half of the first square
+        let half = render_png_window(&cell, None, 64, Rect::new(50, 0, 100, 100));
+        let blank = render_png_window(&Cell::default(), None, 64, Rect::new(50, 0, 100, 100));
+        assert_ne!(
+            half, blank,
+            "the overlapping half of the square must be drawn"
+        );
+        // ...and it is genuinely a *partial* view: framing the whole square differs again.
+        let whole_square = render_png_window(&cell, None, 64, Rect::new(0, 0, 100, 100));
+        assert_ne!(
+            half, whole_square,
+            "half the square must not render identically to all of it"
+        );
     }
 }

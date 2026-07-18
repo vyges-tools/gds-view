@@ -31,6 +31,8 @@ flags:
   -o FILE        write to FILE (default: stdout). SVG, or a PNG if FILE ends in .png
   --png          force PNG (bounded raster thumbnail — for dense real blocks)
   --width N      PNG fit size in pixels (default: 700)
+  --window BOX   PNG only: frame this db-unit region instead of the whole cell,
+                 as `x0,y0,x1,y1` — the occurrence-level view for one violation
   --describe            print a machine-readable JSON description of the command
   -h, --help · -V, --version
 ";
@@ -39,6 +41,34 @@ fn opt(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1).cloned())
+}
+
+/// Parse a `--window x0,y0,x1,y1` region in db units.
+///
+/// Rejected rather than silently repaired when the corners are inverted: `x1,y0,x0,y1` is far
+/// more likely a caller that swapped its arguments than one asking for a mirrored view, and
+/// quietly normalising it would render a plausible image of the wrong place.
+fn parse_window(spec: &str) -> Result<vyges_gds_view::geom::Rect, String> {
+    let n: Vec<&str> = spec.split(',').map(str::trim).collect();
+    if n.len() != 4 {
+        return Err(format!(
+            "--window needs 4 comma-separated db-unit values `x0,y0,x1,y1`, got {:?}",
+            spec
+        ));
+    }
+    let v: Result<Vec<i32>, _> = n.iter().map(|t| t.parse::<i32>()).collect();
+    let v = v.map_err(|_| format!("--window values must be integers (db units), got {spec:?}"))?;
+    if v[2] <= v[0] || v[3] <= v[1] {
+        return Err(format!(
+            "--window {spec:?} is empty or inverted: needs x1 > x0 and y1 > y0"
+        ));
+    }
+    Ok(vyges_gds_view::geom::Rect {
+        x0: v[0],
+        y0: v[1],
+        x1: v[2],
+        y1: v[3],
+    })
 }
 
 /// Parse a marks file: one violation per line, `x0 y0 x1 y1 [label...]`, `#` comments.
@@ -264,7 +294,16 @@ fn main() {
                 let dim = opt(&args, "--width")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(700);
-                write_bytes(&args, &png::render_png(&cell, layers.as_deref(), dim));
+                // --window frames a chosen region: a violation is invisible in a
+                // whole-block thumbnail, so the caller says which part to look at.
+                let bytes = match opt(&args, "--window") {
+                    Some(spec) => {
+                        let w = parse_window(&spec).unwrap_or_else(|e| die(&e));
+                        png::render_png_window(&cell, layers.as_deref(), dim, w)
+                    }
+                    None => png::render_png(&cell, layers.as_deref(), dim),
+                };
+                write_bytes(&args, &bytes);
             } else {
                 write_out(&args, &svg::render(&cell, layers.as_deref(), &marks));
             }
@@ -315,5 +354,51 @@ mod tests {
         let cell = flatten::flatten(&lib, "demo").unwrap();
         let svg = svg::render(&cell, None, &[]);
         assert!(svg.contains("layer 66") && svg.contains("layer 70"));
+    }
+
+    // ---- --window parsing ----
+
+    #[test]
+    fn a_window_parses_to_its_db_unit_rect() {
+        let w = parse_window("10,20,30,40").expect("a well-formed window");
+        assert_eq!((w.x0, w.y0, w.x1, w.y1), (10, 20, 30, 40));
+        // whitespace around the values is the natural thing to type
+        let w = parse_window(" 10 , 20 , 30 , 40 ").expect("spaces are tolerated");
+        assert_eq!((w.x0, w.y0, w.x1, w.y1), (10, 20, 30, 40));
+        // db units are signed: a window may sit below/left of the origin
+        let w = parse_window("-40,-40,0,0").expect("negative db coordinates are valid");
+        assert_eq!((w.x0, w.y0, w.x1, w.y1), (-40, -40, 0, 0));
+    }
+
+    /// Inverted corners are refused rather than normalised. `x1,y0,x0,y1` is far more likely
+    /// a caller that swapped its arguments than one asking for a mirrored view, and quietly
+    /// repairing it would render a plausible image of the wrong place — the worst outcome for
+    /// something whose whole job is to be evidence.
+    #[test]
+    fn an_inverted_or_empty_window_is_refused() {
+        for spec in [
+            "100,100,50,50",
+            "100,0,50,80",
+            "0,100,80,50",
+            "10,10,10,20",
+            "10,10,20,10",
+        ] {
+            let e = parse_window(spec).expect_err("{spec} should be refused");
+            assert!(
+                e.contains("empty or inverted"),
+                "{spec} should say why: {e}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_window_says_what_it_wanted() {
+        for spec in ["1,2,3", "1,2,3,4,5", "", "a,b,c,d", "1,2,3,x"] {
+            let e = parse_window(spec).expect_err("{spec} should be refused");
+            assert!(
+                e.contains("--window"),
+                "the error should name the flag: {e}"
+            );
+        }
     }
 }
