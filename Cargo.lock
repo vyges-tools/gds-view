@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "vyges-gds-view"
-version = "0.1.15"
+version = "0.1.17"
 dependencies = [
  "vyges-events",
  "vyges-layout",
