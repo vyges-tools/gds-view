@@ -207,6 +207,7 @@ fn main() {
     if args.iter().any(|a| a == "--describe") {
         // Machine-readable description of `render` for tooling that drives it.
         const DESCRIBE: &str = r#"{
+  "schema": "vyges-tool-descriptor/1.1",
   "name": "gds-view",
   "summary": "headless layout viewer — GDS/OASIS → layered SVG",
   "maturity": "structured",
