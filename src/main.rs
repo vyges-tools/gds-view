@@ -17,12 +17,12 @@ use vyges_gds_view::{flatten, png, VERSION};
 use std::collections::BTreeSet;
 
 const USAGE: &str = "\
-vyges-gds-view — headless layout viewer (GDS or OASIS in, layered SVG out)
+vyges loom gds-view — headless layout viewer (GDS or OASIS in, layered SVG out)
 
 usage:
-  vyges-gds-view render LAYOUT [--top CELL] [--layers L1,L2] [--marks FILE] [-o OUT.svg]
+  vyges loom gds-view render LAYOUT [--top CELL] [--layers L1,L2] [--marks FILE] [-o OUT.svg]
   # LAYOUT is GDSII (.gds) or OASIS (.oas/.oasis) — picked by extension
-  vyges-gds-view demo [-o OUT.svg]
+  vyges loom gds-view demo [-o OUT.svg]
 
 flags:
   --top CELL     top cell to flatten + render (default: last cell in the GDS)
