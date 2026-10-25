@@ -15,6 +15,10 @@
 //! (un-flattened) views, fills vs. outlines per layer, and reading engine JSON
 //! directly are the depth passes.
 
+// The crate's own name inside it: the command-line entry ([`cli_main`]) is built into the
+// library too, and its `vyges_gds_view::…` paths resolve here.
+extern crate self as vyges_gds_view;
+
 pub use vyges_layout::{flatten, gds, geom};
 
 pub mod png;
@@ -22,3 +26,10 @@ pub mod svg;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const COPYRIGHT: &str = "© 2026 Vyges. All Rights Reserved.  https://vyges.com";
+
+/// The `vyges-gds-view` command-line entry (the binary's `main`), built into the library too so a
+/// suite binary can link every engine and run the one it is invoked as.
+#[cfg(feature = "suite")]
+#[doc(hidden)]
+#[path = "main.rs"]
+pub mod cli_main;

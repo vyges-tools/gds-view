@@ -202,7 +202,7 @@ fn emit_gds_view_events(top: &str, cell: &Cell, layers: Option<&[i16]>, out: Opt
     );
 }
 
-fn main() {
+pub fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--describe") {
         // Machine-readable description of `render` for tooling that drives it.
