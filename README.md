@@ -9,7 +9,7 @@ overlay** that boxes exactly where another engine flagged a problem.
 > not only teams who can license a six-figure tool. `vyges-gds-view` makes the
 > geometry *visible*.
 
-> **Stability: experimental (v0.1.0).** Real flatten-and-render with a violation
+> **Stability: stable, actively developed.** Real flatten-and-render with a violation
 > overlay; this is a *look at it* aid, not an interactive layout editor — see
 > **Current state** for what is and isn't there.
 
@@ -66,7 +66,7 @@ layout.
   a legend lists the layers present.
 - **Overlay** each mark as a red outline box (with its label) on top — the *where*.
 
-## Current state (v0.1.0)
+## Current state
 
 **Working & tested:** flatten + render of `Boundary` / `Box` / `Path` geometry, the
 per-layer palette and legend, a `--layers` filter, the `--marks` violation overlay
