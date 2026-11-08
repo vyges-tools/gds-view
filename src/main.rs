@@ -11,6 +11,7 @@ use std::process::exit;
 
 use vyges_gds_view::gds::{Cell, Element, Library};
 use vyges_gds_view::geom::Rect;
+use vyges_gds_view::mask::MaskMap;
 use vyges_gds_view::svg::{self, Mark};
 use vyges_gds_view::{flatten, png, VERSION};
 
@@ -28,6 +29,9 @@ flags:
   --top CELL     top cell to flatten + render (default: last cell in the GDS)
   --layers LIST  comma-separated GDS layer numbers to show (default: all)
   --marks FILE   overlay violation boxes; each line: `x0 y0 x1 y1 [label...]`
+  --masks MAP    colour multi-patterned layers by mask: `L/D=M,...` names which
+                 layer/datatype is which mask (e.g. 15/0=1,15/1=2); each mask
+                 gets its own shade of the layer colour and legend entry
   -o FILE        write to FILE (default: stdout). SVG, or a PNG if FILE ends in .png
   --png          force PNG (bounded raster thumbnail — for dense real blocks)
   --width N      PNG fit size in pixels (default: 700)
@@ -220,6 +224,7 @@ pub fn main() {
       { "arg": "top",    "flag": "--top" },
       { "arg": "layers", "flag": "--layers" },
       { "arg": "marks",  "flag": "--marks" },
+      { "arg": "masks",  "flag": "--masks" },
       { "arg": "out",    "flag": "-o" }
     ],
     "emits_json": false
@@ -232,6 +237,7 @@ pub fn main() {
       "top":    { "type": "string", "description": "top cell (default: the sole cell)" },
       "layers": { "type": "string", "description": "comma-separated layers to draw, e.g. 66,68" },
       "marks":  { "type": "string", "description": "a marks file to overlay" },
+      "masks":  { "type": "string", "description": "layer/datatype to mask map, e.g. 15/0=1,15/1=2" },
       "out":    { "type": "string", "description": "write the SVG to this path (default: stdout)" }
     }
   },
@@ -289,6 +295,13 @@ pub fn main() {
                 None => Vec::new(),
             };
             let layers = layer_filter(&args);
+            let masks = match opt(&args, "--masks") {
+                Some(spec) => MaskMap::parse(&spec).unwrap_or_else(|e| {
+                    eprintln!("error: {e}");
+                    exit(2)
+                }),
+                None => MaskMap::default(),
+            };
             emit_gds_view_events(&top, &cell, layers.as_deref(), opt(&args, "-o").as_deref());
             if wants_png(&args) {
                 // Raster output: bounded PNG thumbnail (real blocks are too dense for SVG).
@@ -297,16 +310,22 @@ pub fn main() {
                     .unwrap_or(700);
                 // --window frames a chosen region: a violation is invisible in a
                 // whole-block thumbnail, so the caller says which part to look at.
-                let bytes = match opt(&args, "--window") {
-                    Some(spec) => {
-                        let w = parse_window(&spec).unwrap_or_else(|e| die(&e));
-                        png::render_png_window(&cell, layers.as_deref(), dim, w)
-                    }
-                    None => png::render_png(&cell, layers.as_deref(), dim),
+                let window = match opt(&args, "--window") {
+                    Some(spec) => parse_window(&spec).unwrap_or_else(|e| die(&e)),
+                    // the whole cell, as `png::render_png` frames it
+                    None => png::drawn_bbox(&cell, layers.as_deref()).unwrap_or(Rect {
+                        x0: 0,
+                        y0: 0,
+                        x1: 1,
+                        y1: 1,
+                    }),
                 };
+                let bytes =
+                    png::render_png_window_masked(&cell, layers.as_deref(), dim, window, &masks);
                 write_bytes(&args, &bytes);
             } else {
-                write_out(&args, &svg::render(&cell, layers.as_deref(), &marks));
+                let svg = svg::render_masked(&cell, layers.as_deref(), &marks, &masks);
+                write_out(&args, &svg);
             }
         }
         other => {

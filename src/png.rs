@@ -6,6 +6,7 @@
 //! PNG encoder (8-bit RGB, uncompressed DEFLATE — CRC32 + Adler32 by hand).
 
 use crate::gds::{Cell, Element};
+use crate::mask::{self, MaskMap};
 
 /// Same 14-colour palette as the SVG renderer, as RGB.
 const PALETTE: &[(u8, u8, u8)] = &[
@@ -87,6 +88,18 @@ pub fn render_png_window(
     max_dim: u32,
     window: crate::geom::Rect,
 ) -> Vec<u8> {
+    render_png_window_masked(cell, layers, max_dim, window, &MaskMap::default())
+}
+
+/// [`render_png_window`], with the shapes on the `layer/datatype` pairs `masks` names shaded
+/// by mask (see [`crate::mask`]). An empty map renders exactly as [`render_png_window`].
+pub fn render_png_window_masked(
+    cell: &Cell,
+    layers: Option<&[i16]>,
+    max_dim: u32,
+    window: crate::geom::Rect,
+    masks: &MaskMap,
+) -> Vec<u8> {
     let (x0, y0) = (window.x0 as f64, window.y0 as f64);
     let (x1, y1) = (window.x1 as f64, window.y1 as f64);
     let (dw, dh) = ((x1 - x0).max(1.0), (y1 - y0).max(1.0));
@@ -100,19 +113,29 @@ pub fn render_png_window(
 
     for e in &cell.elements {
         match e {
-            Element::Boundary { layer, pts: p, .. } | Element::Box { layer, pts: p, .. }
-                if keep(*layer, layers) =>
-            {
+            Element::Boundary {
+                layer,
+                datatype,
+                pts: p,
+            }
+            | Element::Box {
+                layer,
+                boxtype: datatype,
+                pts: p,
+            } if keep(*layer, layers) => {
                 let poly: Vec<(f64, f64)> =
                     p.iter().map(|&(x, y)| map(x as f64, y as f64)).collect();
-                fill(&mut buf, w, h, &poly, color(*layer), 0.45);
+                let c = mask::shade(color(*layer), masks.mask(*layer, *datatype));
+                fill(&mut buf, w, h, &poly, c, 0.45);
             }
             Element::Path {
                 layer,
+                datatype,
                 pts: p,
                 width,
                 ..
             } if keep(*layer, layers) => {
+                let c = mask::shade(color(*layer), masks.mask(*layer, *datatype));
                 let hw = ((*width as f64 * s) / 2.0).max(0.5);
                 let px: Vec<(f64, f64)> = p.iter().map(|&(x, y)| map(x as f64, y as f64)).collect();
                 for seg in px.windows(2) {
@@ -127,7 +150,7 @@ pub fn render_png_window(
                         (bx - nx, by - ny),
                         (ax - nx, ay - ny),
                     ];
-                    fill(&mut buf, w, h, &quad, color(*layer), 0.55);
+                    fill(&mut buf, w, h, &quad, c, 0.55);
                 }
             }
             _ => {}
@@ -290,6 +313,34 @@ mod tests {
             ],
             ..Default::default()
         }
+    }
+
+    /// Two shapes of one layer, the second on datatype 1.
+    fn two_masks() -> Cell {
+        let b = |d, x| Element::Boundary {
+            layer: 15,
+            datatype: d,
+            pts: Rect::new(x, 0, x + 100, 100).as_boundary(),
+        };
+        Cell {
+            elements: vec![b(0, 0), b(1, 200)],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_second_mask_is_drawn_in_its_own_shade() {
+        let w = Rect::new(0, 0, 300, 100);
+        let plain = render_png_window(&two_masks(), None, 64, w);
+        let m = MaskMap::parse("15/0=1,15/1=2").unwrap();
+        assert_ne!(
+            render_png_window_masked(&two_masks(), None, 64, w, &m),
+            plain,
+            "the shape on mask 2 must change colour"
+        );
+        // Only mask 1 named: mask 1 is the plain layer colour, so nothing changes.
+        let m1 = MaskMap::parse("15/0=1").unwrap();
+        assert_eq!(render_png_window_masked(&two_masks(), None, 64, w, &m1), plain);
     }
 
     /// PNG dimensions straight out of the IHDR chunk (bytes 16..24, big-endian).

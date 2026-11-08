@@ -26,3 +26,16 @@ path = "src/main.rs"
 [lib]
 name = "vyges_gds_view"
 path = "src/lib.rs"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+ptr_arg = "warn"
+borrowed_box = "warn"
+len_without_is_empty = "warn"
+new_without_default = "warn"
+wrong_self_convention = "warn"
+should_implement_trait = "warn"
+type_complexity = "allow"

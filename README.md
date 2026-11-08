@@ -40,7 +40,8 @@ vyges-gds-view demo -o demo.svg                                  # built-in samp
 vyges-gds-view render block.gds -o block.svg                     # flatten top cell -> SVG
 vyges-gds-view render block.gds --top mycell --layers 66,68      # pick cell + restrict layers
 vyges-gds-view render block.gds --marks viols.txt -o block.svg   # overlay violation boxes
-# flags: --top CELL · --layers LIST · --marks FILE · -o FILE · -h · -V
+vyges-gds-view render block.gds --masks 15/0=1,15/1=2            # colour a layer by mask
+# flags: --top CELL · --layers LIST · --marks FILE · --masks MAP · -o FILE · -h · -V
 ```
 
 The **marks file** is one violation per line — the trivial format any engine can
@@ -64,6 +65,11 @@ layout.
 - **Draw** each `Boundary`/`Box` as a translucent filled polygon and each `Path` as
   a stroked polyline, coloured from a fixed palette indexed by **GDS layer number**;
   a legend lists the layers present.
+- **Masks:** on a multi-patterned layer the mask travels as a datatype. `--masks`
+  names which `layer/datatype` is which mask; each mask is drawn in its own shade of
+  the layer colour (mask 1 is the plain colour) and gets its own legend entry
+  (`layer 15 mask 2`), so same-mask neighbours are visible. Datatypes the map does
+  not name, and every render without `--masks`, are drawn exactly as before.
 - **Overlay** each mark as a red outline box (with its label) on top — the *where*.
 
 ## Current state
@@ -77,7 +83,7 @@ valid SVG. A `demo` subcommand renders a built-in layout with no input.
 
 - always renders a **flattened** top cell — per-instance / hierarchical views are a
   follow-up;
-- **datatype** is not yet part of the colour key (layer number only); a named
+- **datatype** is part of the colour key only through `--masks`; a named
   layer-map (layer/datatype to name + colour, à la a KLayout layer properties file)
   is the next step;
 - consumes violations as the simple **marks** text format — reading a `vyges-drc`

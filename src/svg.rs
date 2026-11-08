@@ -11,6 +11,7 @@ use std::fmt::Write as _;
 
 use crate::gds::{Cell, Element};
 use crate::geom::Rect;
+use crate::mask::{self, MaskMap};
 
 /// A violation/region to box on top of the layout, in GDS db-unit coordinates.
 pub struct Mark {
@@ -31,6 +32,30 @@ const PALETTE: &[&str] = &[
 
 fn color(layer: i16) -> &'static str {
     PALETTE[(layer as usize).wrapping_rem(PALETTE.len())]
+}
+
+/// A legend entry: the layer, and its mask when a [`MaskMap`] names the shape's datatype.
+type Key = (i16, Option<u8>);
+
+/// The colour of a legend entry: the layer's palette colour, shaded by mask.
+fn key_color(key: Key) -> String {
+    match key.1 {
+        None => color(key.0).to_string(),
+        Some(m) => {
+            let h = color(key.0);
+            let ch = |i: usize| {
+                u8::from_str_radix(&h[i..i + 2], 16).expect("palette entries are #rrggbb")
+            };
+            mask::hex(mask::shade((ch(1), ch(3), ch(5)), Some(m)))
+        }
+    }
+}
+
+fn key_label(key: Key) -> String {
+    match key.1 {
+        None => format!("layer {}", key.0),
+        Some(m) => format!("layer {} mask {m}", key.0),
+    }
 }
 
 /// Every (x,y) vertex that appears as drawn geometry, for bbox.
@@ -57,6 +82,17 @@ fn keep(layer: i16, layers: Option<&[i16]>) -> bool {
 
 /// `render(cell, None, &[])` draws all layers; pass `Some(&[..])` to restrict.
 pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
+    render_masked(cell, layers, marks, &MaskMap::default())
+}
+
+/// [`render`], with the shapes on the `layer/datatype` pairs `masks` names shaded by mask and
+/// listed per mask in the legend. An empty map renders exactly as [`render`].
+pub fn render_masked(
+    cell: &Cell,
+    layers: Option<&[i16]>,
+    marks: &[Mark],
+    masks: &MaskMap,
+) -> String {
     let pts = points(cell, layers);
     let mark_pts: Vec<(i32, i32)> = marks.iter().flat_map(|m| m.r.as_boundary()).collect();
     let all: Vec<(i32, i32)> = pts.iter().chain(mark_pts.iter()).copied().collect();
@@ -69,7 +105,7 @@ pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
     let s = DRAW_W / dw.max(dh); // uniform fit
     let draw_h = dh * s;
     let canvas_w = DRAW_W + LEGEND_W + MARGIN * 3.0;
-    let canvas_h = draw_h.max(legend_height(cell, layers)) + MARGIN * 2.0;
+    let canvas_h = draw_h.max(legend_height(cell, layers, masks)) + MARGIN * 2.0;
     let sw = (DRAW_W / 400.0).max(0.6); // stroke width
 
     // db-unit (x,y) -> canvas pixel (y flipped).
@@ -85,26 +121,33 @@ pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
         ch = canvas_h,
     );
 
-    let mut seen: BTreeSet<i16> = BTreeSet::new();
+    let mut seen: BTreeSet<Key> = BTreeSet::new();
     for e in &cell.elements {
         match e {
-            Element::Boundary { layer, pts, .. } | Element::Box { layer, pts, .. }
+            Element::Boundary { layer, datatype, pts }
+            | Element::Box { layer, boxtype: datatype, pts }
                 if keep(*layer, layers) =>
             {
-                seen.insert(*layer);
+                let key = (*layer, masks.mask(*layer, *datatype));
+                seen.insert(key);
                 let poly = poly(pts, &map);
-                let c = color(*layer);
+                let c = key_color(key);
                 let _ = writeln!(
                     o,
                     "<polygon points=\"{poly}\" fill=\"{c}\" fill-opacity=\"0.35\" stroke=\"{c}\" stroke-width=\"{sw:.2}\"/>",
                 );
             }
             Element::Path {
-                layer, pts, width, ..
+                layer,
+                datatype,
+                pts,
+                width,
+                ..
             } if keep(*layer, layers) => {
-                seen.insert(*layer);
+                let key = (*layer, masks.mask(*layer, *datatype));
+                seen.insert(key);
                 let pl = poly(pts, &map);
-                let c = color(*layer);
+                let c = key_color(key);
                 let w = (*width as f64 * s).max(sw);
                 let _ = writeln!(
                     o,
@@ -143,13 +186,14 @@ pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
         o,
         "<text x=\"{lx:.1}\" y=\"{MARGIN}\" font-weight=\"bold\">layers</text>"
     );
-    for (i, layer) in seen.iter().enumerate() {
+    for (i, key) in seen.iter().enumerate() {
         let y = MARGIN + 14.0 + i as f64 * 18.0;
-        let c = color(*layer);
+        let c = key_color(*key);
+        let label = key_label(*key);
         let _ = write!(
             o,
             "<rect x=\"{lx:.1}\" y=\"{ry:.1}\" width=\"12\" height=\"12\" fill=\"{c}\" fill-opacity=\"0.6\" stroke=\"{c}\"/>\n\
-             <text x=\"{tx:.1}\" y=\"{ty:.1}\">layer {layer}</text>\n",
+             <text x=\"{tx:.1}\" y=\"{ty:.1}\">{label}</text>\n",
             ry = y,
             tx = lx + 18.0,
             ty = y + 10.0,
@@ -172,17 +216,17 @@ pub fn render(cell: &Cell, layers: Option<&[i16]>, marks: &[Mark]) -> String {
     o
 }
 
-fn legend_height(cell: &Cell, layers: Option<&[i16]>) -> f64 {
+fn legend_height(cell: &Cell, layers: Option<&[i16]>, masks: &MaskMap) -> f64 {
     let n = cell
         .elements
         .iter()
         .filter_map(|e| match e {
-            Element::Boundary { layer, .. }
-            | Element::Box { layer, .. }
-            | Element::Path { layer, .. }
+            Element::Boundary { layer, datatype, .. }
+            | Element::Box { layer, boxtype: datatype, .. }
+            | Element::Path { layer, datatype, .. }
                 if keep(*layer, layers) =>
             {
-                Some(*layer)
+                Some((*layer, masks.mask(*layer, *datatype)))
             }
             _ => None,
         })
@@ -264,6 +308,43 @@ mod tests {
         assert!(svg.contains("stroke=\"#d00\""), "violation box is red");
         assert!(svg.contains("space &lt; 100"), "label is escaped + shown");
         assert!(svg.contains("1 violation(s)"));
+    }
+
+    /// One layer drawn on two masks (datatypes 0 and 1), plus an unmapped datatype.
+    fn coloured() -> Cell {
+        let b = |d, x| Element::Boundary {
+            layer: 15,
+            datatype: d,
+            pts: Rect::new(x, 0, x + 40, 100).as_boundary(),
+        };
+        Cell {
+            name: "top".into(),
+            elements: vec![b(0, 0), b(1, 60), b(0, 120), b(7, 180)],
+        }
+    }
+
+    #[test]
+    fn masks_get_their_own_shade_and_legend_entry() {
+        let m = MaskMap::parse("15/0=1,15/1=2").unwrap();
+        let svg = render_masked(&coloured(), None, &[], &m);
+        let m1 = key_color((15, Some(1)));
+        let m2 = key_color((15, Some(2)));
+        assert_ne!(m1, m2, "two masks of one layer must not share a colour");
+        assert_eq!(m1, color(15), "mask 1 is the plain layer colour");
+        assert_eq!(svg.matches("<polygon points=").count(), 4);
+        let on = |c: &str| svg.matches(&format!("fill=\"{c}\" fill-opacity=\"0.35\"")).count();
+        assert_eq!(on(&m2), 1, "one shape on mask 2");
+        assert_eq!(on(&m1), 3, "mask 1 and the unmapped datatype share the layer colour");
+        assert!(svg.contains(">layer 15 mask 1<") && svg.contains(">layer 15 mask 2<"));
+        // datatype 7 is not in the map: drawn and listed as the plain layer.
+        assert!(svg.contains(">layer 15<"), "an unmapped datatype keeps the plain entry");
+    }
+
+    #[test]
+    fn without_a_mask_map_every_datatype_is_the_plain_layer() {
+        let svg = render(&coloured(), None, &[]);
+        assert!(!svg.contains("mask"), "no mask map, no mask entries");
+        assert_eq!(svg.matches(&format!("fill=\"{}\" fill-opacity=\"0.35\"", color(15))).count(), 4);
     }
 
     #[test]

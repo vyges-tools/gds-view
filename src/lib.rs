@@ -21,6 +21,7 @@ extern crate self as vyges_gds_view;
 
 pub use vyges_layout::{flatten, gds, geom};
 
+pub mod mask;
 pub mod png;
 pub mod svg;
 
