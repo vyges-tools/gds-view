@@ -1,7 +1,5 @@
 # vyges-gds-view
 
-**[Download Loom](https://vyges.com/products/vyges-cli/#install)** · install the free [Vyges CLI](https://vyges.com/products/vyges-cli/), then `vyges install loom`
-
 Headless **GDS layout viewer**: a laid-out **GDS** in, a single self-contained
 **SVG** out — every shape coloured by its layer, with an optional **violation
 overlay** that boxes exactly where another engine flagged a problem.
